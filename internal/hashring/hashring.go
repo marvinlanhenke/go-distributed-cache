@@ -11,10 +11,14 @@ type Node struct {
 	Addr string
 }
 
+type hashNode struct {
+	hash uint32
+	node *Node
+}
+
 type HashRing struct {
 	mu     sync.Mutex
-	nodes  []*Node
-	hashes []uint32
+	hashes []hashNode
 }
 
 func New() *HashRing {
@@ -22,7 +26,11 @@ func New() *HashRing {
 }
 
 func (h *HashRing) Size() int {
-	return len(h.nodes)
+	return len(h.hashes)
+}
+
+func (h *HashRing) IsEmpty() bool {
+	return h.Size() == 0
 }
 
 func (h *HashRing) Add(node *Node) {
@@ -30,11 +38,11 @@ func (h *HashRing) Add(node *Node) {
 	defer h.mu.Unlock()
 
 	hash := h.hash(node.ID)
-	h.nodes = append(h.nodes, node)
-	h.hashes = append(h.hashes, hash)
+	hashNode := hashNode{hash: hash, node: node}
+	h.hashes = append(h.hashes, hashNode)
 
 	sort.Slice(h.hashes, func(i, j int) bool {
-		return h.hashes[i] < h.hashes[j]
+		return h.hashes[i].hash < h.hashes[j].hash
 	})
 }
 
@@ -42,20 +50,8 @@ func (h *HashRing) Remove(nodeID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	var index int
-	var hash uint32
-
-	for i, node := range h.nodes {
-		if node.ID == nodeID {
-			hash = h.hash(node.ID)
-			index = i
-			break
-		}
-	}
-	h.nodes = append(h.nodes[:index], h.nodes[index+1:]...)
-
-	for i, hsh := range h.hashes {
-		if hsh == hash {
+	for i, hn := range h.hashes {
+		if hn.node.ID == nodeID {
 			h.hashes = append(h.hashes[:i], h.hashes[i+1:]...)
 			break
 		}
@@ -63,7 +59,7 @@ func (h *HashRing) Remove(nodeID string) {
 }
 
 func (h *HashRing) Get(key string) *Node {
-	if len(h.nodes) == 0 {
+	if h.IsEmpty() {
 		return nil
 	}
 
@@ -71,15 +67,15 @@ func (h *HashRing) Get(key string) *Node {
 	defer h.mu.Unlock()
 
 	hash := h.hash(key)
-	index := sort.Search(len(h.hashes), func(i int) bool {
-		return h.hashes[i] >= hash
+	idx := sort.Search(len(h.hashes), func(i int) bool {
+		return h.hashes[i].hash >= hash
 	})
 
-	if index == len(h.hashes) {
-		index = 0
+	if idx == len(h.hashes) {
+		idx = 0
 	}
 
-	return h.nodes[index]
+	return h.hashes[idx].node
 }
 
 func (h *HashRing) hash(key string) uint32 {
