@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/marvinlanhenke/go-distributed-cache/internal/cache"
+	"github.com/marvinlanhenke/go-distributed-cache/internal/hashring"
 )
 
 const replicationHeader = "X-Replication-Request"
@@ -19,13 +20,31 @@ type SetRequest struct {
 }
 
 type CacheServer struct {
-	mu    sync.Mutex
-	cache *cache.Cache
-	peers []string
+	mu       sync.Mutex
+	cache    *cache.Cache
+	hashRing *hashring.HashRing
+	peers    []string
+	addr     string
 }
 
-func New(peers []string, capacity int) *CacheServer {
-	return &CacheServer{cache: cache.New(capacity), peers: peers}
+func New(addr string, peers []string, capacity int) *CacheServer {
+	cs := &CacheServer{
+		cache:    cache.New(capacity),
+		hashRing: hashring.New(),
+		peers:    peers,
+		addr:     addr,
+	}
+
+	for _, peer := range peers {
+		if peer != "" {
+			cs.hashRing.Add(&hashring.Node{ID: peer, Addr: peer})
+		}
+	}
+	cs.hashRing.Add(&hashring.Node{ID: addr, Addr: addr})
+
+	log.Printf("ring: %v", cs.hashRing)
+
+	return cs
 }
 
 func (cs *CacheServer) SetHandler(w http.ResponseWriter, r *http.Request) {
