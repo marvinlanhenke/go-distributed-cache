@@ -65,6 +65,13 @@ func (cs *CacheServer) SetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	isReplication := r.Header.Get(replicationHeader) != ""
+	if isReplication {
+		cs.cache.Set(req.Key, req.Value, time.Hour*1)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	targetNode, ok := cs.hashRing.Get(req.Key)
 	if !ok {
 		http.Error(w, "no target node found", http.StatusInternalServerError)
@@ -73,14 +80,14 @@ func (cs *CacheServer) SetHandler(w http.ResponseWriter, r *http.Request) {
 
 	if targetNode.Addr == cs.addr {
 		cs.cache.Set(req.Key, req.Value, time.Hour*1)
-		if r.Header.Get(replicationHeader) == "" {
-			go cs.replicateSet(req.Key, req.Value)
-		}
+
+		go cs.replicateSet(req.Key, req.Value)
 
 		w.WriteHeader(http.StatusOK)
-	} else {
-		cs.forwardRequest(w, r, targetNode, body)
+		return
 	}
+
+	cs.forwardRequest(w, r, targetNode, body)
 }
 
 func (cs *CacheServer) GetHandler(w http.ResponseWriter, r *http.Request) {
@@ -127,7 +134,7 @@ func (cs *CacheServer) replicateSet(key, value string) {
 	}
 
 	for _, peer := range cs.peers {
-		if peer == cs.addr || peer == "" {
+		if peer == "" {
 			continue
 		}
 
@@ -153,7 +160,7 @@ func (cs *CacheServer) replicateSet(key, value string) {
 }
 
 func (cs *CacheServer) forwardRequest(w http.ResponseWriter, r *http.Request, targetNode *hashring.Node, body []byte) {
-	log.Printf("forwarding to node %s", targetNode.Addr)
+	log.Printf("forwarding request to node %s", targetNode.Addr)
 	client := &http.Client{}
 
 	var req *http.Request
