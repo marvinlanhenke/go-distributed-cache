@@ -13,7 +13,7 @@ type Node struct {
 
 type HashRing struct {
 	mu     sync.Mutex
-	nodes  []Node
+	nodes  []*Node
 	hashes []uint32
 }
 
@@ -25,7 +25,7 @@ func (h *HashRing) Size() int {
 	return len(h.nodes)
 }
 
-func (h *HashRing) Add(node Node) {
+func (h *HashRing) Add(node *Node) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -62,9 +62,9 @@ func (h *HashRing) Remove(nodeID string) {
 	}
 }
 
-func (h *HashRing) Get(key string) Node {
+func (h *HashRing) Get(key string) *Node {
 	if len(h.nodes) == 0 {
-		return Node{}
+		return nil
 	}
 
 	h.mu.Lock()
