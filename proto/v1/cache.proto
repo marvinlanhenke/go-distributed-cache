@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package v1.cache;
+
+import "google/protobuf/empty.proto";
+
+option go_package = "github.com/marvinlanhenke/go-distributed-cache/internal/pb";
+
+message SetRequest {
+    string key = 1;
+    string value = 2;
+}
+
+message GetRequest {
+    string key = 1;
+}
+
+message GetResponse {
+    string value = 1;
+}
+
+service CacheService {
+    rpc Set(SetRequest) returns (google.protobuf.Empty);
+    rpc Get(GetRequest) returns (GetResponse);
+}
