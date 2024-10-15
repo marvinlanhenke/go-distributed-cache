@@ -1,30 +1,32 @@
 package main
 
 import (
-	"log"
 	"net"
 
 	"github.com/marvinlanhenke/go-distributed-cache/internal/config"
 	"github.com/marvinlanhenke/go-distributed-cache/internal/pb"
 	"github.com/marvinlanhenke/go-distributed-cache/internal/server"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 )
 
 func main() {
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	cfg, err := config.New()
 	if err != nil {
-		log.Fatalf("failed to provide a valid config: %v", err)
+		log.Fatal().Err(err)
 	}
 
 	lis, err := net.Listen("tcp", cfg.Addr)
 	if err != nil {
-		log.Fatalf("failed to listen on %s: %v", cfg.Addr, err)
+		log.Fatal().Err(err).Str("addr", cfg.Addr).Msg("failed to listen")
 	}
 
 	grpcServer := grpc.NewServer()
 	pb.RegisterCacheServiceServer(grpcServer, server.New(cfg))
-	log.Printf("server starting at: %s\n", cfg.Addr)
+	log.Info().Str("addr", cfg.Addr).Msg("server is starting")
 	if err := grpcServer.Serve(lis); err != nil {
-		log.Fatalf("failed to serve grpc server: %v", err)
+		log.Fatal().Err(err)
 	}
 }
