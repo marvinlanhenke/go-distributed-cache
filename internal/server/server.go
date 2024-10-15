@@ -42,8 +42,6 @@ func New(addr string, peers []string, capacity int) *CacheServer {
 	}
 	cs.hashRing.Add(&hashring.Node{ID: addr, Addr: addr})
 
-	log.Printf("ring: %v", cs.hashRing)
-
 	return cs
 }
 
