@@ -20,6 +20,6 @@ message GetResponse {
 }
 
 service CacheService {
-    rpc Set(SetRequest) returns (google.protobuf.Empty);
-    rpc Get(GetRequest) returns (GetResponse);
+    rpc Set(SetRequest) returns (google.protobuf.Empty) {}
+    rpc Get(GetRequest) returns (GetResponse) {}
 }
