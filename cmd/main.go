@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	cs := server.New()
+	cs := server.New(10)
 	http.HandleFunc("/set", cs.SetHandler)
 	http.HandleFunc("/get", cs.GetHandler)
 

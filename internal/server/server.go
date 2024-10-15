@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/marvinlanhenke/go-distributed-cache/internal/cache"
 )
@@ -11,8 +12,8 @@ type CacheServer struct {
 	cache *cache.Cache
 }
 
-func New() *CacheServer {
-	return &CacheServer{cache: cache.New()}
+func New(capacity int) *CacheServer {
+	return &CacheServer{cache: cache.New(capacity)}
 }
 
 func (cs *CacheServer) SetHandler(w http.ResponseWriter, r *http.Request) {
@@ -26,7 +27,7 @@ func (cs *CacheServer) SetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cs.cache.Set(req.Key, req.Value)
+	cs.cache.Set(req.Key, req.Value, time.Hour*1)
 
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write([]byte("OK")); err != nil {
