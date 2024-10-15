@@ -14,7 +14,6 @@ type Config struct {
 	Capacity       int
 	MaxRecvMsgSize int
 	MaxSendMsgSize int
-	RPCTimeout     int
 }
 
 func New() (*Config, error) {
