@@ -1,17 +1,18 @@
 package server
 
-import "github.com/marvinlanhenke/go-distributed-cache/internal/pb"
+import (
+	"github.com/marvinlanhenke/go-distributed-cache/internal/config"
+	"github.com/marvinlanhenke/go-distributed-cache/internal/pb"
+)
 
 type cacheServer struct {
 	pb.UnimplementedCacheServiceServer
-	addr  string
-	peers []string
+	config *config.Config
 }
 
-func New(addr string, peers []string) *cacheServer {
+func New(cfg *config.Config) *cacheServer {
 	cs := &cacheServer{
-		addr:  addr,
-		peers: peers,
+		config: cfg,
 	}
 
 	return cs
