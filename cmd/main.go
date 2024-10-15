@@ -35,7 +35,7 @@ func main() {
 		log.Fatal().Err(err).Str("addr", cfg.Addr).Msg("failed to listen")
 	}
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(cfg.GrpcServerOptions()...)
 	pb.RegisterCacheServiceServer(grpcServer, server.New(cfg))
 
 	go gracefulShutdown(grpcServer, cfg)
