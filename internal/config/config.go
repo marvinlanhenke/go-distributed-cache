@@ -2,48 +2,47 @@ package config
 
 import (
 	"flag"
-	"fmt"
-	"strings"
 
+	"github.com/BurntSushi/toml"
+	"github.com/go-playground/validator/v10"
 	"google.golang.org/grpc"
 )
 
 type Config struct {
-	Addr           string
-	Peers          []string
-	Capacity       int
-	MaxRecvMsgSize int
-	MaxSendMsgSize int
+	CacheConfig `toml:"cache" validate:"required"`
+	GRPCConfig  `toml:"grpc" validate:"required"`
+}
+
+type CacheConfig struct {
+	Addr     string   `toml:"addr" validate:"required"`
+	Peers    []string `toml:"peers"`
+	Capacity int      `toml:"capacity" validate:"required,gt=0"`
+}
+
+type GRPCConfig struct {
+	MaxRecvMsgSize int `toml:"max_recv_msg_size" validate:"required,gt=0"`
+	MaxSendMsgSize int `toml:"max_send_msg_size" validate:"required,gt=0"`
+	RPCTimeout     int `toml:"rpc_timeout" validate:"required,gt=0"`
+	RateLimit      int `toml:"rate_limit" validate:"required,gt=0"`
+	RateLimitBurst int `toml:"rate_limit_burst" validate:"required,gt=0"`
 }
 
 func New() (*Config, error) {
-	addr := flag.String("addr", "localhost:8080", "server address <host>:<port>")
-	peers := flag.String("peers", "", "Comma-separated list of peer addresses")
-	capacity := flag.Int("capacity", 100, "Cache capacity (number of items)")
-	maxRecvMsgSize := flag.Int("max_recv_msg_size", 4*1024*1024, "Maximum message size the server can receive in bytes (default 4MB)")
-	maxSendMsgSize := flag.Int("max_send_msg_size", 4*1024*1024, "Maximum message size the server can send in bytes (default 4MB)")
-
+	path := flag.String("config", "config.toml", "TOML config filepath")
 	flag.Parse()
 
-	peerList := strings.Split(*peers, ",")
+	var cfg Config
 
-	if *capacity <= 0 {
-		return nil, fmt.Errorf("capacity must be a positive integer")
-	}
-	if *maxRecvMsgSize <= 0 {
-		return nil, fmt.Errorf("max_recv_msg_size must be a positive integer")
-	}
-	if *maxSendMsgSize <= 0 {
-		return nil, fmt.Errorf("max_send_msg_size must be a positive integer")
+	if _, err := toml.DecodeFile(*path, &cfg); err != nil {
+		return nil, err
 	}
 
-	return &Config{
-		Addr:           *addr,
-		Peers:          peerList,
-		Capacity:       *capacity,
-		MaxRecvMsgSize: *maxRecvMsgSize,
-		MaxSendMsgSize: *maxSendMsgSize,
-	}, nil
+	v := validator.New()
+	if err := v.Struct(cfg); err != nil {
+		return nil, err
+	}
+
+	return &cfg, nil
 }
 
 func (c *Config) GrpcServerOptions() []grpc.ServerOption {
