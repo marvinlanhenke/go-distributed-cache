@@ -23,13 +23,13 @@ func TestHashRingGetNode(t *testing.T) {
 	node := &hashring.Node{ID: "node1", Addr: "localhost:8080"}
 	hashRing.Add(node)
 
-	result := hashRing.Get("node1")
+	result, _ := hashRing.Get("node1")
 	require.Equal(t, node, result, "expected to get node %v, instead got %v", node, result)
 }
 
 func TestHashRingGetNodeWithEmptyRing(t *testing.T) {
 	hashRing := hashring.New()
 
-	result := hashRing.Get("node1")
+	result, _ := hashRing.Get("node1")
 	require.Nil(t, result, "expected result to be nil, instead got %v", result)
 }

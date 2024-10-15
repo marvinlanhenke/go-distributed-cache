@@ -3,6 +3,8 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"sync"
@@ -12,7 +14,10 @@ import (
 	"github.com/marvinlanhenke/go-distributed-cache/internal/hashring"
 )
 
-const replicationHeader = "X-Replication-Request"
+const (
+	replicationHeader = "X-Replication-Request"
+	forwardedHeader   = "X-Forwarded-For"
+)
 
 type SetRequest struct {
 	Key   string `json:"key"`
@@ -48,35 +53,66 @@ func New(addr string, peers []string, capacity int) *CacheServer {
 func (cs *CacheServer) SetHandler(w http.ResponseWriter, r *http.Request) {
 	var req SetRequest
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "failed to read request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if err := json.Unmarshal(body, &req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	cs.cache.Set(req.Key, req.Value, time.Hour*1)
-
-	if r.Header.Get(replicationHeader) == "" {
-		go cs.replicateSet(req.Key, req.Value)
+	targetNode, ok := cs.hashRing.Get(req.Key)
+	if !ok {
+		http.Error(w, "no target node found", http.StatusInternalServerError)
+		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write([]byte("OK")); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if targetNode.Addr == cs.addr {
+		cs.cache.Set(req.Key, req.Value, time.Hour*1)
+		if r.Header.Get(replicationHeader) == "" {
+			go cs.replicateSet(req.Key, req.Value)
+		}
+
+		w.WriteHeader(http.StatusOK)
+	} else {
+		cs.forwardRequest(w, r, targetNode, body)
 	}
 }
 
 func (cs *CacheServer) GetHandler(w http.ResponseWriter, r *http.Request) {
 	key := r.URL.Query().Get("key")
 
-	value, ok := cs.cache.Get(key)
+	targetNode, ok := cs.hashRing.Get(key)
 	if !ok {
-		http.NotFound(w, r)
+		http.Error(w, "no target node found", http.StatusInternalServerError)
 		return
 	}
 
-	if err := json.NewEncoder(w).Encode(map[string]string{"value": value}); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if targetNode.Addr == cs.addr {
+		value, ok := cs.cache.Get(key)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+
+		if err := json.NewEncoder(w).Encode(map[string]string{"value": value}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
 	}
+
+	originalSender := r.Header.Get(forwardedHeader)
+	if originalSender == cs.addr {
+		http.Error(w, "forward loop detected", http.StatusBadRequest)
+		return
+	}
+
+	r.Header.Set(forwardedHeader, cs.addr)
+	cs.forwardRequest(w, r, targetNode, nil)
 }
 
 func (cs *CacheServer) replicateSet(key, value string) {
@@ -91,6 +127,10 @@ func (cs *CacheServer) replicateSet(key, value string) {
 	}
 
 	for _, peer := range cs.peers {
+		if peer == cs.addr || peer == "" {
+			continue
+		}
+
 		go func(peer string) {
 			client := &http.Client{}
 			req, err := http.NewRequest("POST", peer+"/set", bytes.NewReader(data))
@@ -109,5 +149,41 @@ func (cs *CacheServer) replicateSet(key, value string) {
 
 			log.Println("replicated successful to", peer)
 		}(peer)
+	}
+}
+
+func (cs *CacheServer) forwardRequest(w http.ResponseWriter, r *http.Request, targetNode *hashring.Node, body []byte) {
+	log.Printf("forwarding to node %s", targetNode.Addr)
+	client := &http.Client{}
+
+	var req *http.Request
+	var err error
+
+	if r.Method == http.MethodGet {
+		url := fmt.Sprintf("%s%s?%s", targetNode.Addr, r.URL.Path, r.URL.RawQuery)
+		req, err = http.NewRequest(r.Method, url, nil)
+	} else if r.Method == http.MethodPost {
+		url := fmt.Sprintf("%s%s", targetNode.Addr, r.URL.Path)
+		req, err = http.NewRequest(r.Method, url, bytes.NewReader(body))
+	}
+
+	if err != nil {
+		log.Printf("failed to create forward request: %v", err)
+		http.Error(w, "failed to create forward request", http.StatusInternalServerError)
+		return
+	}
+
+	req.Header = r.Header
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("failed to forward request to node %s: %v", targetNode.Addr, err)
+		http.Error(w, "failed to forward request", http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	w.WriteHeader(resp.StatusCode)
+	if _, err := io.Copy(w, resp.Body); err != nil {
+		log.Printf("failed to write response from node %s: %v", targetNode.Addr, err)
 	}
 }

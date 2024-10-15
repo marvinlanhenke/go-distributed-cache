@@ -58,9 +58,9 @@ func (h *HashRing) Remove(nodeID string) {
 	}
 }
 
-func (h *HashRing) Get(key string) *Node {
+func (h *HashRing) Get(key string) (*Node, bool) {
 	if h.IsEmpty() {
-		return nil
+		return nil, false
 	}
 
 	h.mu.Lock()
@@ -75,7 +75,7 @@ func (h *HashRing) Get(key string) *Node {
 		idx = 0
 	}
 
-	return h.hashes[idx].node
+	return h.hashes[idx].node, true
 }
 
 func (h *HashRing) hash(key string) uint32 {
