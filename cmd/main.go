@@ -2,6 +2,9 @@ package main
 
 import (
 	"net"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/marvinlanhenke/go-distributed-cache/internal/config"
 	"github.com/marvinlanhenke/go-distributed-cache/internal/pb"
@@ -11,8 +14,17 @@ import (
 	"google.golang.org/grpc"
 )
 
+func gracefulShutdown(srv *grpc.Server, cfg *config.Config) {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
+	<-ch
+	log.Info().Str("addr", cfg.Addr).Msg("server shutting down...")
+	srv.GracefulStop()
+}
+
 func main() {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+
 	cfg, err := config.New()
 	if err != nil {
 		log.Fatal().Err(err)
@@ -25,7 +37,10 @@ func main() {
 
 	grpcServer := grpc.NewServer()
 	pb.RegisterCacheServiceServer(grpcServer, server.New(cfg))
-	log.Info().Str("addr", cfg.Addr).Msg("server is starting")
+
+	go gracefulShutdown(grpcServer, cfg)
+
+	log.Info().Str("addr", cfg.Addr).Msg("server starting...")
 	if err := grpcServer.Serve(lis); err != nil {
 		log.Fatal().Err(err)
 	}
