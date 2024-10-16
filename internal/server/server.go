@@ -48,61 +48,99 @@ func (cs *cacheServer) Set(ctx context.Context, req *pb.SetRequest) (*empty.Empt
 		return nil, status.Errorf(codes.InvalidArgument, "invalid request: you must provide a valid key")
 	}
 
-	isReplication := req.SourceNode != ""
-	if isReplication {
+	isForwarded := req.SourceNode != ""
+	if isForwarded {
 		cs.cache.Set(req)
 		return &empty.Empty{}, nil
 	}
+	req.SourceNode = cs.config.Addr
 
 	targetNode, ok := cs.hashRing.Get(req.Key)
 	if !ok {
-		return &empty.Empty{}, nil
+		return nil, status.Errorf(codes.NotFound, "a node for the requested key %s was not found", req.Key)
 	}
 
 	if targetNode.Addr == cs.config.Addr {
+		log.Info().Msg("handling set request on current node")
 		cs.cache.Set(req)
 		go cs.replicate(req)
 		return &empty.Empty{}, nil
 	}
-	// TODO: forward
+
+	cs.forwardSet(req, targetNode.Addr)
 	return &empty.Empty{}, nil
 }
 
 func (cs *cacheServer) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
-	resp, ok := cs.cache.Get(req)
+	targetNode, ok := cs.hashRing.Get(req.Key)
 	if !ok {
-		return nil, nil
+		return nil, status.Errorf(codes.NotFound, "a node for the requested key %s was not found", req.Key)
 	}
-	return resp, nil
+
+	if targetNode.Addr == cs.config.Addr {
+		log.Info().Msg("handling get request on current node")
+		value, ok := cs.cache.Get(req)
+		if !ok {
+			return nil, status.Errorf(codes.NotFound, "an entry for key %s does not exist", req.Key)
+		}
+		return value, nil
+	}
+
+	if req.SourceNode == cs.config.Addr {
+		return nil, status.Errorf(codes.Internal, "forward loop detected")
+	}
+
+	req.SourceNode = cs.config.Addr
+	return cs.forwardGet(req, targetNode.Addr)
 }
 
 func (cs *cacheServer) replicate(in *pb.SetRequest) {
-	in.SourceNode = cs.config.Addr
-
 	for _, peer := range cs.config.Peers {
 		if peer == "" {
 			continue
 		}
-
-		go func(peer string) {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
-			defer cancel()
-
-			opts := grpc.WithTransportCredentials(insecure.NewCredentials())
-			cc, err := grpc.NewClient(peer, opts)
-			if err != nil {
-				log.Error().Err(err).Msg("failed to create grpc client for replication")
-				return
-			}
-			defer cc.Close()
-
-			client := pb.NewCacheServiceClient(cc)
-
-			if _, err := client.Set(ctx, in); err != nil {
-				log.Error().Err(err).Str("addr", peer).Msg("failed to replicate request")
-				return
-			}
-			log.Info().Str("addr", peer).Msg("successfully replicated request")
-		}(peer)
+		log.Info().Str("addr", peer).Msg("sending replication request to peer")
+		go cs.forwardSet(in, peer)
 	}
+}
+
+func (cs *cacheServer) forwardSet(in *pb.SetRequest, target string) {
+	log.Info().Str("addr", target).Msg("forwarding set request on target node")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+
+	opts := grpc.WithTransportCredentials(insecure.NewCredentials())
+	cc, err := grpc.NewClient(target, opts)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to create grpc client while forwarding request")
+		return
+	}
+	defer cc.Close()
+
+	client := pb.NewCacheServiceClient(cc)
+
+	if _, err := client.Set(ctx, in); err != nil {
+		log.Error().Err(err).Str("addr", target).Msg("failed to forward set request")
+		return
+	}
+
+	log.Info().Str("addr", target).Msg("successfully forwarded request")
+}
+
+func (cs *cacheServer) forwardGet(in *pb.GetRequest, target string) (*pb.GetResponse, error) {
+	log.Info().Str("addr", target).Msg("forwarding get request on target node")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+
+	opts := grpc.WithTransportCredentials(insecure.NewCredentials())
+	cc, err := grpc.NewClient(target, opts)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to create grpc client while forwarding request")
+		return nil, status.Errorf(codes.Internal, "failed to forward request")
+	}
+	defer cc.Close()
+
+	client := pb.NewCacheServiceClient(cc)
+
+	return client.Get(ctx, in)
 }
