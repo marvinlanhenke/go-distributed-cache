@@ -2,6 +2,7 @@
 addr = "localhost:8080"
 peers = ["localhost:8081", "localhost:8082"]
 capacity = 100
+ttl = 3600
 
 [grpc]
 max_recv_msg_size = 4194304

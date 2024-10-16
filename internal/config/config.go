@@ -2,6 +2,7 @@ package config
 
 import (
 	"flag"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/go-playground/validator/v10"
@@ -14,9 +15,10 @@ type Config struct {
 }
 
 type CacheConfig struct {
-	Addr     string   `toml:"addr" validate:"required"`
-	Peers    []string `toml:"peers"`
-	Capacity int      `toml:"capacity" validate:"required,gt=0"`
+	Addr     string        `toml:"addr" validate:"required"`
+	Peers    []string      `toml:"peers"`
+	Capacity int           `toml:"capacity" validate:"required,gt=0"`
+	TTL      time.Duration `toml:"ttl" validate:"required,gt=0"`
 }
 
 type GRPCConfig struct {
