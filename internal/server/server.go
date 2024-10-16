@@ -9,8 +9,11 @@ import (
 	"github.com/marvinlanhenke/go-distributed-cache/internal/config"
 	"github.com/marvinlanhenke/go-distributed-cache/internal/hashring"
 	"github.com/marvinlanhenke/go-distributed-cache/internal/pb"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/time/rate"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
 
@@ -73,6 +76,33 @@ func (cs *cacheServer) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResp
 	return resp, nil
 }
 
-func (cs *cacheServer) replicate(req *pb.SetRequest) {
-	// TODO: impl client pool
+func (cs *cacheServer) replicate(in *pb.SetRequest) {
+	in.SourceNode = cs.config.Addr
+
+	for _, peer := range cs.config.Peers {
+		if peer == "" {
+			continue
+		}
+
+		go func(peer string) {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+			defer cancel()
+
+			opts := grpc.WithTransportCredentials(insecure.NewCredentials())
+			cc, err := grpc.NewClient(peer, opts)
+			if err != nil {
+				log.Error().Err(err).Msg("failed to create grpc client for replication")
+				return
+			}
+			defer cc.Close()
+
+			client := pb.NewCacheServiceClient(cc)
+
+			if _, err := client.Set(ctx, in); err != nil {
+				log.Error().Err(err).Str("addr", peer).Msg("failed to replicate request")
+				return
+			}
+			log.Info().Str("addr", peer).Msg("successfully replicated request")
+		}(peer)
+	}
 }
