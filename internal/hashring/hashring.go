@@ -47,7 +47,7 @@ func (hr *HashRing) Add(node *Node) {
 	})
 }
 
-func (hr *HashRing) Get(nodeID string) (*Node, bool) {
+func (hr *HashRing) Get(key string) (*Node, bool) {
 	if hr.IsEmpty() {
 		return nil, false
 	}
@@ -55,7 +55,7 @@ func (hr *HashRing) Get(nodeID string) (*Node, bool) {
 	hr.mu.Lock()
 	defer hr.mu.Unlock()
 
-	hash := hr.hash(nodeID)
+	hash := hr.hash(key)
 	index := sort.Search(hr.Size(), func(i int) bool {
 		return hr.members[i].hash >= hash
 	})
@@ -67,7 +67,7 @@ func (hr *HashRing) Get(nodeID string) (*Node, bool) {
 	return hr.members[index].node, true
 }
 
-func (hr *HashRing) hash(nodeID string) uint32 {
-	sum := sha1.Sum([]byte(nodeID))
+func (hr *HashRing) hash(key string) uint32 {
+	sum := sha1.Sum([]byte(key))
 	return binary.LittleEndian.Uint32(sum[:4])
 }
