@@ -9,6 +9,7 @@ option go_package = "github.com/marvinlanhenke/go-distributed-cache/internal/pb"
 message SetRequest {
     string key = 1;
     string value = 2;
+    string source_node = 3;
 }
 
 message GetRequest {
