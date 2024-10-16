@@ -2,13 +2,11 @@ package main
 
 import (
 	"net"
-	"os"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
 	"github.com/marvinlanhenke/go-distributed-cache/internal/config"
 	"github.com/marvinlanhenke/go-distributed-cache/internal/pb"
 	"github.com/marvinlanhenke/go-distributed-cache/internal/server"
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -23,9 +21,6 @@ func NewApplication(config *config.Config) *application {
 }
 
 func (app *application) run() {
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
-
-	logger := zerolog.New(os.Stderr)
 	opts := []logging.Option{
 		logging.WithLogOnEvents(logging.StartCall, logging.FinishCall),
 	}
@@ -37,7 +32,7 @@ func (app *application) run() {
 
 	grpcServer := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
-			logging.UnaryServerInterceptor(server.InterceptorLogger(logger), opts...),
+			logging.UnaryServerInterceptor(server.InterceptorLogger(log.Logger), opts...),
 		),
 	)
 	pb.RegisterCacheServiceServer(grpcServer, server.New(app.config))
