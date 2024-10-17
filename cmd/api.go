@@ -21,28 +21,36 @@ func NewApplication(config *config.Config) *application {
 }
 
 func (app *application) run() {
-	opts := []logging.Option{
-		logging.WithLogOnEvents(logging.StartCall, logging.FinishCall),
-	}
+	grpcServer := app.mount()
 
 	lis, err := net.Listen("tcp", app.config.Addr)
 	if err != nil {
 		log.Fatal().Err(err).Str("addr", app.config.Addr).Msg("failed to listen")
 	}
 
-	grpcServer := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(
-			logging.UnaryServerInterceptor(server.InterceptorLogger(log.Logger), opts...),
-		),
-	)
-	pb.RegisterCacheServiceServer(grpcServer, server.New(app.config))
-
-	reflection.Register(grpcServer)
-
-	go server.GracefulShutdown(grpcServer, app.config)
-
 	log.Info().Str("addr", app.config.Addr).Msg("server starting...")
 	if err := grpcServer.Serve(lis); err != nil {
 		log.Fatal().Err(err)
 	}
+}
+
+func (app *application) mount() *grpc.Server {
+	loggingOpts := []logging.Option{
+		logging.WithLogOnEvents(logging.StartCall, logging.FinishCall),
+	}
+	interceptorOpts := grpc.ChainUnaryInterceptor(
+		logging.UnaryServerInterceptor(server.InterceptorLogger(log.Logger), loggingOpts...),
+	)
+
+	opts := app.config.GrpcServerOptions()
+	opts = append(opts, interceptorOpts)
+
+	grpcServer := grpc.NewServer(opts...)
+
+	pb.RegisterCacheServiceServer(grpcServer, server.New(app.config))
+	reflection.Register(grpcServer)
+
+	go server.GracefulShutdown(grpcServer, app.config)
+
+	return grpcServer
 }
