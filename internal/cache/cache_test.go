@@ -1,6 +1,7 @@
 package cache_test
 
 import (
+	"fmt"
 	"strconv"
 	"sync"
 	"testing"
@@ -47,7 +48,7 @@ func TestCacheLRU(t *testing.T) {
 	cache.Set(&pb.SetRequest{Key: "key3", Value: "value3"})
 
 	_, ok := cache.Get(&pb.GetRequest{Key: "key1"})
-	require.False(t, ok, "unexpected value, expected %v insteag got %v", false, ok)
+	require.False(t, ok, "unexpected value, expected %v instead got %v", false, ok)
 
 	expected := &pb.GetResponse{Value: "value2"}
 	result, ok := cache.Get(&pb.GetRequest{Key: "key2"})
@@ -86,5 +87,42 @@ func TestCacheConcurrency(t *testing.T) {
 				}
 			}
 		}()
+	}
+}
+
+func BenchmarkCacheSet(b *testing.B) {
+	cache := cache.New(1000000, time.Second*3600)
+	req := &pb.SetRequest{Key: "test-key", Value: "test-value"}
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		cache.Set(req)
+	}
+}
+
+func BenchmarkCacheGet(b *testing.B) {
+	cacheSize := 1000000
+	cache := cache.New(cacheSize, time.Second*3600)
+	var keys []string
+
+	for i := 0; i < cacheSize; i++ {
+		key := fmt.Sprintf("test-key-%d", i)
+		value := fmt.Sprintf("test-value-%d", i)
+		req := &pb.SetRequest{Key: key, Value: value}
+		cache.Set(req)
+		keys = append(keys, key)
+	}
+
+	getReqs := make([]*pb.GetRequest, b.N)
+	for i := 0; i < b.N; i++ {
+		key := keys[i%len(keys)]
+		getReqs[i] = &pb.GetRequest{Key: key}
+	}
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		cache.Get(getReqs[i])
 	}
 }
