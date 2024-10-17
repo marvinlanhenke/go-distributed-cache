@@ -1,7 +1,8 @@
 [cache]
 addr = "localhost:8080"
 peers = ["localhost:8081"]
-capacity = 100
+num_shards = 10
+capacity = 1000
 ttl = 3600
 
 [grpc]

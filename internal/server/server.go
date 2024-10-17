@@ -26,7 +26,7 @@ type cacheServer struct {
 
 func New(cfg *config.Config) *cacheServer {
 	cs := &cacheServer{
-		cache:    cache.New(cfg.Capacity, cfg.TTL*time.Second),
+		cache:    cache.New(cfg.NumShards, cfg.Capacity, cfg.TTL*time.Second),
 		hashRing: hashring.New(),
 		connPool: newGrpcConnPool(),
 		config:   cfg,

@@ -14,7 +14,7 @@ import (
 )
 
 func TestCacheSetGet(t *testing.T) {
-	cache := cache.New(10, 3600*time.Second)
+	cache := cache.New(1, 10, 3600*time.Second)
 	req := &pb.SetRequest{Key: "key1", Value: "value1"}
 	cache.Set(req)
 
@@ -25,7 +25,7 @@ func TestCacheSetGet(t *testing.T) {
 }
 
 func TestCacheTTLEvicted(t *testing.T) {
-	cache := cache.New(10, 1*time.Millisecond)
+	cache := cache.New(1, 10, 1*time.Millisecond)
 	cache.Set(&pb.SetRequest{Key: "key1", Value: "value1"})
 
 	time.Sleep(2 * time.Millisecond)
@@ -35,7 +35,7 @@ func TestCacheTTLEvicted(t *testing.T) {
 }
 
 func TestCacheTTLNotEvicted(t *testing.T) {
-	cache := cache.New(10, 10*time.Second)
+	cache := cache.New(1, 10, 10*time.Second)
 	cache.Set(&pb.SetRequest{Key: "key1", Value: "value1"})
 
 	_, ok := cache.Get(&pb.GetRequest{Key: "key1"})
@@ -43,7 +43,7 @@ func TestCacheTTLNotEvicted(t *testing.T) {
 }
 
 func TestCacheLRU(t *testing.T) {
-	cache := cache.New(2, 10*time.Second)
+	cache := cache.New(1, 2, 10*time.Second)
 	cache.Set(&pb.SetRequest{Key: "key1", Value: "value1"})
 	cache.Set(&pb.SetRequest{Key: "key2", Value: "value2"})
 	cache.Set(&pb.SetRequest{Key: "key3", Value: "value3"})
@@ -63,7 +63,7 @@ func TestCacheLRU(t *testing.T) {
 }
 
 func TestCacheConcurrency(t *testing.T) {
-	cache := cache.New(10, 1*time.Hour)
+	cache := cache.New(1, 10, 1*time.Hour)
 	var wg sync.WaitGroup
 
 	numGoroutines := 10
@@ -92,7 +92,7 @@ func TestCacheConcurrency(t *testing.T) {
 }
 
 func BenchmarkCacheSet(b *testing.B) {
-	cache := cache.New(1000000, time.Second*3600)
+	cache := cache.New(100, 1000000, time.Second*3600)
 	req := &pb.SetRequest{Key: "test-key", Value: "test-value"}
 
 	b.ResetTimer()
@@ -104,7 +104,7 @@ func BenchmarkCacheSet(b *testing.B) {
 
 func BenchmarkCacheGet(b *testing.B) {
 	cacheSize := 1000000
-	cache := cache.New(cacheSize, time.Second*3600)
+	cache := cache.New(100, cacheSize, time.Second*3600)
 	var keys []string
 
 	for i := 0; i < cacheSize; i++ {
@@ -130,7 +130,7 @@ func BenchmarkCacheGet(b *testing.B) {
 
 func BenchmarkCacheMixedParallel(b *testing.B) {
 	cacheSize := 1000000
-	cache := cache.New(cacheSize, time.Second*3600)
+	cache := cache.New(100, cacheSize, time.Second*3600)
 	var keys []string
 
 	for i := 0; i < cacheSize; i++ {
@@ -142,12 +142,12 @@ func BenchmarkCacheMixedParallel(b *testing.B) {
 	}
 
 	getReqs := make([]*pb.GetRequest, b.N)
+	setReqs := make([]*pb.SetRequest, b.N)
 	for i := 0; i < b.N; i++ {
 		key := keys[i%len(keys)]
 		getReqs[i] = &pb.GetRequest{Key: key}
+		setReqs[i] = &pb.SetRequest{Key: key, Value: "value"}
 	}
-
-	setReq := &pb.SetRequest{Key: "test-key", Value: "test-value"}
 
 	b.ResetTimer()
 
@@ -158,6 +158,7 @@ func BenchmarkCacheMixedParallel(b *testing.B) {
 				getReq := getReqs[rng.Intn(len(getReqs))]
 				cache.Get(getReq)
 			} else {
+				setReq := setReqs[rng.Intn(len(setReqs))]
 				cache.Set(setReq)
 			}
 		}

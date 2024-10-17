@@ -2,6 +2,7 @@ package cache
 
 import (
 	"container/list"
+	"hash/fnv"
 	"sync"
 	"time"
 
@@ -18,79 +19,107 @@ type listEntry struct {
 	item *cacheItem
 }
 
-type Cache struct {
+type cacheShard struct {
 	mu       sync.RWMutex
 	items    map[string]*list.Element
 	eviction *list.List
 	capacity int
-	ttl      time.Duration
 }
 
-func New(capacity int, ttl time.Duration) *Cache {
+func (cs *cacheShard) evictTTL(item *cacheItem, elem *list.Element, key string) bool {
+	if time.Now().After(item.expiryTime) {
+		cs.eviction.Remove(elem)
+		delete(cs.items, key)
+		return true
+	}
+	return false
+}
+
+func (cs *cacheShard) evictLRU() {
+	elem := cs.eviction.Back()
+	if elem != nil {
+		cs.eviction.Remove(elem)
+		entry := elem.Value.(*listEntry)
+		delete(cs.items, entry.key)
+	}
+}
+
+type Cache struct {
+	shards    []*cacheShard
+	numShards int
+	ttl       time.Duration
+}
+
+func New(numShards, capacity int, ttl time.Duration) *Cache {
+	shards := make([]*cacheShard, numShards)
+	capacityPerShard := capacity / numShards
+	for i := 0; i < numShards; i++ {
+		shards[i] = &cacheShard{
+			items:    make(map[string]*list.Element),
+			eviction: list.New(),
+			capacity: capacityPerShard,
+		}
+	}
 	return &Cache{
-		items:    make(map[string]*list.Element),
-		eviction: list.New(),
-		capacity: capacity,
-		ttl:      ttl,
+		shards:    shards,
+		numShards: numShards,
+		ttl:       ttl,
 	}
 }
 
 func (c *Cache) Set(req *pb.SetRequest) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	shard := c.getShard(req.Key)
 
-	if elem, ok := c.items[req.Key]; ok {
-		c.eviction.Remove(elem)
-		delete(c.items, req.Key)
+	shard.mu.Lock()
+	defer shard.mu.Unlock()
+
+	if elem, ok := shard.items[req.Key]; ok {
+		shard.eviction.Remove(elem)
+		delete(shard.items, req.Key)
 	}
 
-	if c.eviction.Len() >= c.capacity {
-		c.evictLRU()
+	if shard.eviction.Len() >= shard.capacity {
+		shard.evictLRU()
 	}
 
 	item := &cacheItem{
 		value:      req.Value,
 		expiryTime: time.Now().Add(c.ttl),
 	}
-	elem := c.eviction.PushFront(&listEntry{key: req.Key, item: item})
-	c.items[req.Key] = elem
+	elem := shard.eviction.PushFront(&listEntry{key: req.Key, item: item})
+	shard.items[req.Key] = elem
 }
 
 func (c *Cache) Get(req *pb.GetRequest) (*pb.GetResponse, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	shard := c.getShard(req.Key)
 
-	elem, ok := c.items[req.Key]
+	shard.mu.RLock()
+	defer shard.mu.RUnlock()
+
+	elem, ok := shard.items[req.Key]
 	if !ok {
 		return nil, false
 	}
 
 	item := elem.Value.(*listEntry).item
-	if c.evictTTL(item, elem, req.Key) {
+	if shard.evictTTL(item, elem, req.Key) {
 		return nil, false
 	}
 
-	c.eviction.MoveToFront(elem)
+	shard.eviction.MoveToFront(elem)
 
 	return &pb.GetResponse{
 		Value: item.value,
 	}, true
 }
 
-func (c *Cache) evictTTL(item *cacheItem, elem *list.Element, key string) bool {
-	if time.Now().After(item.expiryTime) {
-		c.eviction.Remove(elem)
-		delete(c.items, key)
-		return true
-	}
-	return false
+func (c *Cache) getShard(key string) *cacheShard {
+	hash := fnv32(key)
+	return c.shards[hash%uint32(c.numShards)]
 }
 
-func (c *Cache) evictLRU() {
-	elem := c.eviction.Back()
-	if elem != nil {
-		c.eviction.Remove(elem)
-		entry := elem.Value.(*listEntry)
-		delete(c.items, entry.key)
-	}
+func fnv32(key string) uint32 {
+	hsh := fnv.New32a()
+	hsh.Write([]byte(key))
+	return hsh.Sum32()
 }
