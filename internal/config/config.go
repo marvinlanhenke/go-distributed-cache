@@ -1,51 +1,54 @@
 package config
 
 import (
-	"flag"
+	"strings"
 	"time"
 
-	"github.com/BurntSushi/toml"
-	"github.com/go-playground/validator/v10"
 	"google.golang.org/grpc"
 )
 
 type Config struct {
-	CacheConfig `toml:"cache" validate:"required"`
-	GRPCConfig  `toml:"grpc" validate:"required"`
-}
-
-type CacheConfig struct {
-	Addr      string        `toml:"addr" validate:"required"`
-	Peers     []string      `toml:"peers"`
-	NumShards int           `toml:"num_shards" validate:"required,gt=0"`
-	Capacity  int           `toml:"capacity" validate:"required,gt=0"`
-	TTL       time.Duration `toml:"ttl" validate:"required,gt=0"`
-}
-
-type GRPCConfig struct {
-	MaxRecvMsgSize int `toml:"max_recv_msg_size" validate:"required,gt=0"`
-	MaxSendMsgSize int `toml:"max_send_msg_size" validate:"required,gt=0"`
-	RPCTimeout     int `toml:"rpc_timeout" validate:"required,gt=0"`
-	RateLimit      int `toml:"rate_limit" validate:"required,gt=0"`
-	RateLimitBurst int `toml:"rate_limit_burst" validate:"required,gt=0"`
+	Port           string
+	Addr           string
+	Peers          []string
+	NumShards      int
+	Capacity       int
+	TTL            time.Duration
+	MaxRecvMsgSize int
+	MaxSendMsgSize int
+	RPCTimeout     int
+	RateLimit      int
+	RateLimitBurst int
 }
 
 func New() (*Config, error) {
-	path := flag.String("config", "config.toml", "TOML config filepath")
-	flag.Parse()
+	numShards := getInt("NUM_SHARDS", 1)
+	capacity := getInt("CAPACITY", 1000)
+	TTL := getInt("TTL", 3600)
+	maxRecvMsgSize := getInt("MAX_RECV_MSG_SIZE", 4194304)
+	maxSendMsgSize := getInt("MAX_SEND_MSG_SIZE", 4194304)
+	rpcTimeout := getInt("RPC_TIMEOUT", 5)
+	rateLimit := getInt("RATE_LIMIT", 10)
+	rateLimitBurst := getInt("RATE_LIMIT_BURST", 100)
 
-	var cfg Config
+	port := getString("PORT", ":8080")
+	addr := getString("ADDR", "localhost:8080")
+	peersEnv := getString("PEERS", addr)
+	peers := strings.Split(peersEnv, ",")
 
-	if _, err := toml.DecodeFile(*path, &cfg); err != nil {
-		return nil, err
-	}
-
-	v := validator.New()
-	if err := v.Struct(cfg); err != nil {
-		return nil, err
-	}
-
-	return &cfg, nil
+	return &Config{
+		Port:           port,
+		Addr:           addr,
+		Peers:          peers,
+		NumShards:      numShards,
+		Capacity:       capacity,
+		TTL:            time.Duration(TTL) * time.Second,
+		MaxRecvMsgSize: maxRecvMsgSize,
+		MaxSendMsgSize: maxSendMsgSize,
+		RPCTimeout:     rpcTimeout,
+		RateLimit:      rateLimit,
+		RateLimitBurst: rateLimitBurst,
+	}, nil
 }
 
 func (c *Config) GrpcServerOptions() []grpc.ServerOption {

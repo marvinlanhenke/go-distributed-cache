@@ -4,6 +4,7 @@ import (
 	"net"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
+	"github.com/joho/godotenv"
 	"github.com/marvinlanhenke/go-distributed-cache/internal/config"
 	"github.com/marvinlanhenke/go-distributed-cache/internal/pb"
 	"github.com/marvinlanhenke/go-distributed-cache/internal/server"
@@ -23,12 +24,12 @@ func NewApplication(config *config.Config) *application {
 func (app *application) run() {
 	grpcServer := app.mount()
 
-	lis, err := net.Listen("tcp", app.config.Addr)
+	lis, err := net.Listen("tcp", app.config.Port)
 	if err != nil {
-		log.Fatal().Err(err).Str("addr", app.config.Addr).Msg("failed to listen")
+		log.Fatal().Err(err).Str("port", app.config.Port).Msg("failed to listen")
 	}
 
-	log.Info().Str("addr", app.config.Addr).Msg("server starting...")
+	log.Info().Str("port", app.config.Port).Msg("server starting...")
 	if err := grpcServer.Serve(lis); err != nil {
 		log.Fatal().Err(err)
 	}
@@ -56,6 +57,11 @@ func (app *application) mount() *grpc.Server {
 }
 
 func main() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Warn().Err(err).Msg("failed loading .env file")
+	}
+
 	cfg, err := config.New()
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create config")
