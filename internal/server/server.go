@@ -67,7 +67,7 @@ func (cs *cacheServer) Set(ctx context.Context, req *pb.SetRequest) (*empty.Empt
 		return &empty.Empty{}, nil
 	}
 
-	cs.forwardSet(req, targetNode.Addr)
+	go cs.forwardSet(req, targetNode.Addr)
 	return &empty.Empty{}, nil
 }
 
