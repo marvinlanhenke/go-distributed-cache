@@ -11,9 +11,7 @@ import (
 	"github.com/marvinlanhenke/go-distributed-cache/internal/pb"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/time/rate"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
 
@@ -21,6 +19,7 @@ type cacheServer struct {
 	pb.UnimplementedCacheServiceServer
 	cache    *cache.Cache
 	hashRing *hashring.HashRing
+	connPool *grpcConnPool
 	config   *config.Config
 	limiter  *rate.Limiter
 }
@@ -29,6 +28,7 @@ func New(cfg *config.Config) *cacheServer {
 	cs := &cacheServer{
 		cache:    cache.New(cfg.Capacity, cfg.TTL*time.Second),
 		hashRing: hashring.New(),
+		connPool: newGrpcConnPool(),
 		config:   cfg,
 		limiter:  rate.NewLimiter(rate.Limit(cfg.RateLimit), cfg.RateLimitBurst),
 	}
@@ -106,18 +106,15 @@ func (cs *cacheServer) replicate(in *pb.SetRequest) {
 
 func (cs *cacheServer) forwardSet(in *pb.SetRequest, target string) {
 	log.Info().Str("addr", target).Msg("forwarding set request on target node")
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
-	opts := grpc.WithTransportCredentials(insecure.NewCredentials())
-	cc, err := grpc.NewClient(target, opts)
+	client, err := cs.connPool.get(target)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to create grpc client while forwarding request")
 		return
 	}
-	defer cc.Close()
-
-	client := pb.NewCacheServiceClient(cc)
 
 	if _, err := client.Set(ctx, in); err != nil {
 		log.Error().Err(err).Str("addr", target).Msg("failed to forward set request")
@@ -129,18 +126,15 @@ func (cs *cacheServer) forwardSet(in *pb.SetRequest, target string) {
 
 func (cs *cacheServer) forwardGet(in *pb.GetRequest, target string) (*pb.GetResponse, error) {
 	log.Info().Str("addr", target).Msg("forwarding get request on target node")
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
-	opts := grpc.WithTransportCredentials(insecure.NewCredentials())
-	cc, err := grpc.NewClient(target, opts)
+	client, err := cs.connPool.get(target)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to create grpc client while forwarding request")
+		log.Error().Err(err).Msg("failed to create grpc client while forwarding get request")
 		return nil, status.Errorf(codes.Internal, "failed to forward request")
 	}
-	defer cc.Close()
-
-	client := pb.NewCacheServiceClient(cc)
 
 	return client.Get(ctx, in)
 }
