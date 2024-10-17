@@ -2,6 +2,7 @@ package cache_test
 
 import (
 	"fmt"
+	"math/rand"
 	"strconv"
 	"sync"
 	"testing"
@@ -125,4 +126,40 @@ func BenchmarkCacheGet(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		cache.Get(getReqs[i])
 	}
+}
+
+func BenchmarkCacheMixedParallel(b *testing.B) {
+	cacheSize := 1000000
+	cache := cache.New(cacheSize, time.Second*3600)
+	var keys []string
+
+	for i := 0; i < cacheSize; i++ {
+		key := fmt.Sprintf("test-key-%d", i)
+		value := fmt.Sprintf("test-value-%d", i)
+		req := &pb.SetRequest{Key: key, Value: value}
+		cache.Set(req)
+		keys = append(keys, key)
+	}
+
+	getReqs := make([]*pb.GetRequest, b.N)
+	for i := 0; i < b.N; i++ {
+		key := keys[i%len(keys)]
+		getReqs[i] = &pb.GetRequest{Key: key}
+	}
+
+	setReq := &pb.SetRequest{Key: "test-key", Value: "test-value"}
+
+	b.ResetTimer()
+
+	b.RunParallel(func(p *testing.PB) {
+		rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+		for p.Next() {
+			if rng.Intn(10) < 8 {
+				getReq := getReqs[rng.Intn(len(getReqs))]
+				cache.Get(getReq)
+			} else {
+				cache.Set(setReq)
+			}
+		}
+	})
 }
