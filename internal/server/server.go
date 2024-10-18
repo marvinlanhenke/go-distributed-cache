@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	empty "github.com/golang/protobuf/ptypes/empty"
@@ -60,15 +62,34 @@ func (cs *cacheServer) Set(ctx context.Context, req *pb.SetRequest) (*empty.Empt
 		return nil, status.Errorf(codes.Internal, "not enough nodes available to achieve write quorum")
 	}
 
+	var wg sync.WaitGroup
+	wg.Add(len(nodes))
+	var writeSuccess int32
+
 	for _, node := range nodes {
 		if node.Addr == cs.config.Addr {
-			log.Info().Str("addr", cs.config.Addr).Msg("handling request on current node")
-			cs.cache.Set(req)
-			continue
+			go func() {
+				defer wg.Done()
+				log.Info().Str("addr", cs.config.Addr).Msg("handling request on current node")
+				atomic.AddInt32(&writeSuccess, 1)
+			}()
+		} else {
+			go func(target string) {
+				defer wg.Done()
+				if err := cs.forwardSet(req, node.Addr); err == nil {
+					atomic.AddInt32(&writeSuccess, 1)
+				}
+			}(node.Addr)
 		}
-		cs.forwardSet(req, node.Addr)
 	}
 
+	wg.Wait()
+	if atomic.LoadInt32(&writeSuccess) < int32(cs.hashRing.Replication) {
+		log.Error().Str("addr", cs.config.Addr).Msg("no write quorum achieved")
+		return nil, status.Errorf(codes.Internal, "no write quorum achived")
+	}
+
+	cs.cache.Set(req)
 	return &empty.Empty{}, nil
 }
 
@@ -79,7 +100,7 @@ func (cs *cacheServer) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResp
 	}
 
 	if targetNode.Addr == cs.config.Addr {
-		log.Info().Msg("handling get request on current node")
+		log.Info().Str("addr", cs.config.Addr).Msg("handling get request on current node")
 		value, ok := cs.cache.Get(req)
 		if !ok {
 			return nil, status.Errorf(codes.NotFound, "an entry for key %s does not exist", req.Key)
@@ -95,8 +116,8 @@ func (cs *cacheServer) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResp
 	return cs.forwardGet(req, targetNode.Addr)
 }
 
-func (cs *cacheServer) forwardSet(in *pb.SetRequest, target string) {
-	log.Info().Str("addr", target).Msg("forwarding set request on target node")
+func (cs *cacheServer) forwardSet(in *pb.SetRequest, target string) error {
+	log.Info().Str("addr", target).Msg("forwarding set request to target node")
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
@@ -104,15 +125,15 @@ func (cs *cacheServer) forwardSet(in *pb.SetRequest, target string) {
 	client, err := cs.connPool.get(target)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to create grpc client while forwarding request")
-		return
+		return err
 	}
 
 	if _, err := client.Set(ctx, in); err != nil {
 		log.Error().Err(err).Str("addr", target).Msg("failed to forward set request")
-		return
+		return err
 	}
 
-	log.Info().Str("addr", target).Msg("successfully forwarded request")
+	return nil
 }
 
 func (cs *cacheServer) forwardGet(in *pb.GetRequest, target string) (*pb.GetResponse, error) {
