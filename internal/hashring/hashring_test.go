@@ -18,6 +18,62 @@ func TestHashRingAddGetNode(t *testing.T) {
 	require.Equal(t, node, result, "expected to retrieve node %v, instead got %v", node, result)
 }
 
+func TestHashRingReplication(t *testing.T) {
+	hr := hashring.New()
+
+	hr.Add(&hashring.Node{ID: "node1", Addr: "localhost:8080"})
+	require.Equal(t, 1, hr.Replication, "expected replication to be %d, instead got %d", 1, hr.Replication)
+
+	hr.Add(&hashring.Node{ID: "node2", Addr: "localhost:8081"})
+	require.Equal(t, 2, hr.Replication, "expected replication to be %d, instead got %d", 2, hr.Replication)
+
+	hr.Add(&hashring.Node{ID: "node3", Addr: "localhost:8082"})
+	require.Equal(t, 2, hr.Replication, "expected replication to be %d, instead got %d", 2, hr.Replication)
+
+	nodes, ok := hr.GetNodes("node1")
+	require.True(t, ok, "expected %v, instead got %v", true, ok)
+	require.Len(t, nodes, 2, "expected len of %d, instead got %d", 2, len(nodes))
+
+	nodes, ok = hr.GetNodes("node2")
+	require.True(t, ok, "expected %v, instead got %v", true, ok)
+	require.Len(t, nodes, 2, "expected len of %d, instead got %d", 2, len(nodes))
+
+	nodes, ok = hr.GetNodes("node3")
+	require.True(t, ok, "expected %v, instead got %v", true, ok)
+	require.Len(t, nodes, 2, "expected len of %d, instead got %d", 2, len(nodes))
+}
+
+func TestHashRingReplicationWithEmptyRing(t *testing.T) {
+	hr := hashring.New()
+
+	nodes, ok := hr.GetNodes("node1")
+	require.False(t, ok, "expected %v, instead got %v", false, ok)
+	require.Nil(t, nodes, "expected nodes to be nil, instead got %v", nodes)
+}
+
+func TestHashRingReplicationWithGreaterReplicationFactor(t *testing.T) {
+	hr := hashring.New()
+	hr.Add(&hashring.Node{ID: "node1", Addr: "localhost:8080"})
+	hr.Replication = 2
+
+	nodes, ok := hr.GetNodes("node1")
+	require.False(t, ok, "expected %v, instead got %v", false, ok)
+	require.Nil(t, nodes, "expected nodes to be nil, instead got %v", nodes)
+}
+
+func TestHashRingReplicationWithDuplicates(t *testing.T) {
+	hr := hashring.New()
+	hr.Add(&hashring.Node{ID: "node1", Addr: "localhost:8080"})
+	hr.Add(&hashring.Node{ID: "node1", Addr: "localhost:8080"})
+	hr.Add(&hashring.Node{ID: "node1", Addr: "localhost:8080"})
+	hr.Add(&hashring.Node{ID: "node2", Addr: "localhost:8081"})
+	hr.Add(&hashring.Node{ID: "node2", Addr: "localhost:8081"})
+
+	nodes, ok := hr.GetNodes("node1")
+	require.False(t, ok, "expected %v, instead got %v", false, ok)
+	require.Nil(t, nodes, "expected nodes to be nil, instead got %v", nodes)
+}
+
 func TestHashRingWithEqualNodes(t *testing.T) {
 	hr1 := hashring.New()
 	hr1.Add(&hashring.Node{ID: "node1", Addr: "localhost:8080"})

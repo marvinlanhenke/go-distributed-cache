@@ -18,8 +18,9 @@ type member struct {
 }
 
 type HashRing struct {
-	mu      sync.Mutex
-	members []member
+	mu          sync.Mutex
+	members     []member
+	Replication int
 }
 
 func New() *HashRing {
@@ -45,6 +46,8 @@ func (hr *HashRing) Add(node *Node) {
 	sort.Slice(hr.members, func(i, j int) bool {
 		return hr.members[i].hash < hr.members[j].hash
 	})
+
+	hr.Replication = hr.Size()/2 + 1
 }
 
 func (hr *HashRing) Get(key string) (*Node, bool) {
@@ -65,6 +68,51 @@ func (hr *HashRing) Get(key string) (*Node, bool) {
 	}
 
 	return hr.members[index].node, true
+}
+
+func (hr *HashRing) GetNodes(key string) ([]*Node, bool) {
+	if hr.IsEmpty() || hr.Replication > hr.Size() {
+		return nil, false
+	}
+
+	hr.mu.Lock()
+	defer hr.mu.Unlock()
+
+	hash := hr.hash(key)
+	index := sort.Search(hr.Size(), func(i int) bool {
+		return hr.members[i].hash >= hash
+	})
+
+	if index == hr.Size() {
+		index = 0
+	}
+
+	seen := make(map[string]struct{})
+	nodes := make([]*Node, 0, hr.Replication)
+
+	currentIndex := index
+	for len(nodes) < hr.Replication {
+		node := hr.members[currentIndex].node
+		if _, exists := seen[node.ID]; !exists {
+			nodes = append(nodes, node)
+			seen[node.ID] = struct{}{}
+		}
+
+		currentIndex++
+		if currentIndex >= hr.Size() {
+			currentIndex = 0
+		}
+
+		if currentIndex == index {
+			break
+		}
+	}
+
+	if len(nodes) < hr.Replication {
+		return nil, false
+	}
+
+	return nodes, true
 }
 
 func (hr *HashRing) hash(key string) uint32 {
