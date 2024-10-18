@@ -46,17 +46,13 @@ func New(cfg *config.Config) *cacheServer {
 }
 
 func (cs *cacheServer) Set(ctx context.Context, req *pb.SetRequest) (*empty.Empty, error) {
-	if req.Key == "" {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid request: you must provide a valid key")
-	}
-
 	isForwarded := req.SourceNode != ""
 	if isForwarded {
 		cs.cache.Set(req)
 		return &empty.Empty{}, nil
 	}
-
 	req.SourceNode = cs.config.Addr
+
 	nodes, ok := cs.hashRing.GetNodes(req.Key)
 	if !ok {
 		return nil, status.Errorf(codes.Internal, "not enough nodes available to achieve write quorum")
@@ -70,7 +66,6 @@ func (cs *cacheServer) Set(ctx context.Context, req *pb.SetRequest) (*empty.Empt
 		if node.Addr == cs.config.Addr {
 			go func() {
 				defer wg.Done()
-				log.Info().Str("addr", cs.config.Addr).Msg("handling request on current node")
 				atomic.AddInt32(&writeSuccess, 1)
 			}()
 		} else {
@@ -94,26 +89,70 @@ func (cs *cacheServer) Set(ctx context.Context, req *pb.SetRequest) (*empty.Empt
 }
 
 func (cs *cacheServer) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
-	targetNode, ok := cs.hashRing.Get(req.Key)
-	if !ok {
-		return nil, status.Errorf(codes.NotFound, "a node for the requested key %s was not found", req.Key)
-	}
-
-	if targetNode.Addr == cs.config.Addr {
-		log.Info().Str("addr", cs.config.Addr).Msg("handling get request on current node")
-		value, ok := cs.cache.Get(req)
+	isForwarded := req.SourceNode != ""
+	if isForwarded {
+		resp, ok := cs.cache.Get(req)
 		if !ok {
-			return nil, status.Errorf(codes.NotFound, "an entry for key %s does not exist", req.Key)
+			return nil, status.Errorf(codes.NotFound, "no entry for key %q found", req.Key)
 		}
-		return value, nil
+		return resp, nil
 	}
-
-	if req.SourceNode == cs.config.Addr {
-		return nil, status.Errorf(codes.Internal, "forward loop detected")
-	}
-
 	req.SourceNode = cs.config.Addr
-	return cs.forwardGet(req, targetNode.Addr)
+
+	nodes, ok := cs.hashRing.GetNodes(req.Key)
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "no entry for key %q found", req.Key)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(len(nodes))
+	var readSuccess int32
+	responseCh := make(chan *pb.GetResponse, len(nodes))
+
+	for _, node := range nodes {
+		if node.Addr == cs.config.Addr {
+			go func() {
+				defer wg.Done()
+				item, ok := cs.cache.Get(req)
+				if ok {
+					atomic.AddInt32(&readSuccess, 1)
+					responseCh <- item
+				}
+			}()
+		} else {
+			go func(target string) {
+				defer wg.Done()
+				item, err := cs.forwardGet(req, target)
+				if err == nil {
+					atomic.AddInt32(&readSuccess, 1)
+					responseCh <- item
+				}
+			}(node.Addr)
+		}
+	}
+
+	wg.Wait()
+	close(responseCh)
+
+	if int(atomic.LoadInt32(&readSuccess)) < cs.hashRing.Replication {
+		return nil, status.Errorf(codes.Internal, "not enough nodes available to achieve read quorum")
+	}
+
+	var response *pb.GetResponse
+	var maxVersion uint32 = 0
+
+	for resp := range responseCh {
+		if resp.Version >= maxVersion {
+			maxVersion = resp.Version
+			response = resp
+		}
+	}
+
+	if response == nil {
+		return nil, status.Errorf(codes.NotFound, "no entry for key %q found", req.Key)
+	}
+
+	return response, nil
 }
 
 func (cs *cacheServer) forwardSet(in *pb.SetRequest, target string) error {
