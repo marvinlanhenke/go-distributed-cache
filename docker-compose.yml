@@ -7,11 +7,18 @@ services:
       - "8080:8080"
     environment:
       - ADDR=cache1:8080
-      - PEERS=cache2:8080
+      - PEERS=cache2:8080,cache3:8080
   cache2:
     image: ml/go-distributed-cache
     build: ./
     restart: unless-stopped
     environment:
       - ADDR=cache2:8080
-      - PEERS=cache1:8080
+      - PEERS=cache1:8080,cache3:8080
+  cache3:
+    image: ml/go-distributed-cache
+    build: ./
+    restart: unless-stopped
+    environment:
+      - ADDR=cache3:8080
+      - PEERS=cache1:8080,cache2:8080
