@@ -19,6 +19,7 @@ message GetRequest {
 
 message GetResponse {
     string value = 1;
+    uint32 version = 2;
 }
 
 service CacheService {

@@ -10,6 +10,7 @@ import (
 
 type cacheItem struct {
 	value      string
+	version    int
 	expiryTime time.Time
 }
 
@@ -47,7 +48,9 @@ func (c *Cache) Set(req *pb.SetRequest) {
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
 
+	var nextVersion int
 	if elem, ok := shard.items[req.Key]; ok {
+		nextVersion = elem.Value.(*listEntry).item.version + 1
 		shard.eviction.Remove(elem)
 		delete(shard.items, req.Key)
 	}
@@ -58,6 +61,7 @@ func (c *Cache) Set(req *pb.SetRequest) {
 
 	item := &cacheItem{
 		value:      req.Value,
+		version:    nextVersion,
 		expiryTime: time.Now().Add(c.ttl),
 	}
 	elem := shard.eviction.PushFront(&listEntry{key: req.Key, item: item})
@@ -83,7 +87,8 @@ func (c *Cache) Get(req *pb.GetRequest) (*pb.GetResponse, bool) {
 	shard.eviction.MoveToFront(elem)
 
 	return &pb.GetResponse{
-		Value: item.value,
+		Value:   item.value,
+		Version: uint32(item.version),
 	}, true
 }
 

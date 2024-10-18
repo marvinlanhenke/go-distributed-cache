@@ -18,8 +18,27 @@ func TestCacheSetGet(t *testing.T) {
 	req := &pb.SetRequest{Key: "key1", Value: "value1"}
 	cache.Set(req)
 
-	expected := &pb.GetResponse{Value: "value1"}
+	expected := &pb.GetResponse{Value: "value1", Version: 0}
 	result, ok := cache.Get(&pb.GetRequest{Key: "key1"})
+	require.True(t, ok, "unexpected value, expected %v instead got %v", true, ok)
+	require.Equal(t, expected, result, "unexpected value, expected %v instead got %v", expected, result)
+}
+
+func TestCacheSetWithVersion(t *testing.T) {
+	cache := cache.New(1, 10, 3600*time.Second)
+	req := &pb.SetRequest{Key: "key1", Value: "value1"}
+	cache.Set(req)
+
+	expected := &pb.GetResponse{Value: "value1", Version: 0}
+	result, ok := cache.Get(&pb.GetRequest{Key: "key1"})
+	require.True(t, ok, "unexpected value, expected %v instead got %v", true, ok)
+	require.Equal(t, expected, result, "unexpected value, expected %v instead got %v", expected, result)
+
+	req = &pb.SetRequest{Key: "key1", Value: "value2"}
+	cache.Set(req)
+
+	expected = &pb.GetResponse{Value: "value2", Version: 1}
+	result, ok = cache.Get(&pb.GetRequest{Key: "key1"})
 	require.True(t, ok, "unexpected value, expected %v instead got %v", true, ok)
 	require.Equal(t, expected, result, "unexpected value, expected %v instead got %v", expected, result)
 }
@@ -51,12 +70,12 @@ func TestCacheLRU(t *testing.T) {
 	_, ok := cache.Get(&pb.GetRequest{Key: "key1"})
 	require.False(t, ok, "unexpected value, expected %v instead got %v", false, ok)
 
-	expected := &pb.GetResponse{Value: "value2"}
+	expected := &pb.GetResponse{Value: "value2", Version: 0}
 	result, ok := cache.Get(&pb.GetRequest{Key: "key2"})
 	require.True(t, ok, "unexpected value, expected %v instead got %v", true, ok)
 	require.Equal(t, expected, result, "unexpected value, expected %v instead got %v", expected, result)
 
-	expected = &pb.GetResponse{Value: "value3"}
+	expected = &pb.GetResponse{Value: "value3", Version: 0}
 	result, ok = cache.Get(&pb.GetRequest{Key: "key3"})
 	require.True(t, ok, "unexpected value, expected %v instead got %v", true, ok)
 	require.Equal(t, expected, result, "unexpected value, expected %v instead got %v", expected, result)
@@ -83,7 +102,7 @@ func TestCacheConcurrency(t *testing.T) {
 				result, ok := cache.Get(&pb.GetRequest{Key: key})
 
 				if ok {
-					expected := &pb.GetResponse{Value: value}
+					expected := &pb.GetResponse{Value: value, Version: 0}
 					require.Equal(t, expected, result, "unexpected value, expected %v instead got %v", expected, result)
 				}
 			}
