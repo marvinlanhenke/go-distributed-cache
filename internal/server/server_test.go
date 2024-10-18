@@ -75,3 +75,19 @@ func TestServerSetSuccess(t *testing.T) {
 	_, err := srv1.Set(ctx, req)
 	require.NoError(t, err, "expected no error, instead got %v", err)
 }
+
+func TestServerSetNoWriteQuorum(t *testing.T) {
+	addrs := []string{":8080", ":8081", ":8082"}
+	hashRing := createHashRing(addrs, 2)
+	srv1, grpc1 := startServer(":8080", hashRing)
+	defer grpc1.Stop()
+
+	ctx := context.Background()
+	req := &pb.SetRequest{
+		Key:   "test-key",
+		Value: "test-value",
+	}
+
+	_, err := srv1.Set(ctx, req)
+	require.Error(t, err, "expected an error, instead got %v", err)
+}
