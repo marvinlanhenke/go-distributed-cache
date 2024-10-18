@@ -50,26 +50,6 @@ func (hr *HashRing) Add(node *Node) {
 	hr.Replication = hr.Size()/2 + 1
 }
 
-func (hr *HashRing) Get(key string) (*Node, bool) {
-	if hr.IsEmpty() {
-		return nil, false
-	}
-
-	hr.mu.Lock()
-	defer hr.mu.Unlock()
-
-	hash := hr.hash(key)
-	index := sort.Search(hr.Size(), func(i int) bool {
-		return hr.members[i].hash >= hash
-	})
-
-	if index == hr.Size() {
-		index = 0
-	}
-
-	return hr.members[index].node, true
-}
-
 func (hr *HashRing) GetNodes(key string) ([]*Node, bool) {
 	if hr.IsEmpty() || hr.Replication > hr.Size() {
 		return nil, false
