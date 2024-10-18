@@ -48,7 +48,7 @@ func (c *Cache) Set(req *pb.SetRequest) {
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
 
-	var nextVersion int
+	var nextVersion int = 0
 	if elem, ok := shard.items[req.Key]; ok {
 		nextVersion = elem.Value.(*listEntry).item.version + 1
 		shard.eviction.Remove(elem)
