@@ -8,7 +8,6 @@ import (
 )
 
 type Config struct {
-	Port           string
 	Addr           string
 	Peers          []string
 	NumShards      int
@@ -31,13 +30,11 @@ func New() (*Config, error) {
 	rateLimit := getInt("RATE_LIMIT", 10)
 	rateLimitBurst := getInt("RATE_LIMIT_BURST", 100)
 
-	port := getString("PORT", ":8080")
 	addr := getString("ADDR", "localhost:8080")
-	peersEnv := getString("PEERS", addr)
+	peersEnv := getString("PEERS", "")
 	peers := strings.Split(peersEnv, ",")
 
 	return &Config{
-		Port:           port,
 		Addr:           addr,
 		Peers:          peers,
 		NumShards:      numShards,

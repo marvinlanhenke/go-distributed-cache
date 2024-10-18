@@ -7,6 +7,7 @@ import (
 	"time"
 
 	empty "github.com/golang/protobuf/ptypes/empty"
+	"github.com/hashicorp/memberlist"
 	"github.com/marvinlanhenke/go-distributed-cache/internal/cache"
 	"github.com/marvinlanhenke/go-distributed-cache/internal/config"
 	"github.com/marvinlanhenke/go-distributed-cache/internal/hashring"
@@ -17,13 +18,30 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+type eventDelegate struct {
+	*cacheServer
+}
+
+func (d *eventDelegate) NotifyJoin(node *memberlist.Node) {
+	log.Info().Str("node", node.Name).Msg("Node joined")
+	d.hashRing.Add(&hashring.Node{ID: node.Name, Addr: node.Name})
+}
+
+func (d *eventDelegate) NotifyLeave(node *memberlist.Node) {
+	log.Info().Str("node", node.Name).Msg("Node left")
+	d.hashRing.Remove(node.Name)
+}
+
+func (d *eventDelegate) NotifyUpdate(node *memberlist.Node) {}
+
 type cacheServer struct {
 	pb.UnimplementedCacheServiceServer
-	cache    *cache.Cache
-	hashRing *hashring.HashRing
-	connPool *grpcConnPool
-	config   *config.Config
-	limiter  *rate.Limiter
+	cache      *cache.Cache
+	hashRing   *hashring.HashRing
+	memberlist *memberlist.Memberlist
+	connPool   *grpcConnPool
+	config     *config.Config
+	limiter    *rate.Limiter
 }
 
 func New(cfg *config.Config) *cacheServer {
@@ -35,11 +53,20 @@ func New(cfg *config.Config) *cacheServer {
 		limiter:  rate.NewLimiter(rate.Limit(cfg.RateLimit), cfg.RateLimitBurst),
 	}
 
-	for _, peer := range cfg.Peers {
-		if peer != "" {
-			cs.hashRing.Add(&hashring.Node{ID: peer, Addr: peer})
-		}
+	mlConfig := memberlist.DefaultLANConfig()
+	mlConfig.Name = cfg.Addr
+	mlConfig.Events = &eventDelegate{cs}
+
+	ml, err := memberlist.Create(mlConfig)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to create memberlist")
 	}
+
+	cs.memberlist = ml
+	if _, err := cs.memberlist.Join(cfg.Peers); err != nil {
+		log.Warn().Err(err).Msg("failed to join membership cluster")
+	}
+
 	cs.hashRing.Add(&hashring.Node{ID: cfg.Addr, Addr: cfg.Addr})
 
 	return cs

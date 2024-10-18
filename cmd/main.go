@@ -13,6 +13,8 @@ import (
 	"google.golang.org/grpc/reflection"
 )
 
+const port = ":8080"
+
 type application struct {
 	config *config.Config
 }
@@ -24,12 +26,12 @@ func NewApplication(config *config.Config) *application {
 func (app *application) run() {
 	grpcServer := app.mount()
 
-	lis, err := net.Listen("tcp", app.config.Port)
+	lis, err := net.Listen("tcp", port)
 	if err != nil {
-		log.Fatal().Err(err).Str("port", app.config.Port).Msg("failed to listen")
+		log.Fatal().Err(err).Str("port", port).Msg("failed to listen")
 	}
 
-	log.Info().Str("port", app.config.Port).Msg("server starting...")
+	log.Info().Str("port", port).Msg("server starting...")
 	if err := grpcServer.Serve(lis); err != nil {
 		log.Fatal().Err(err)
 	}
