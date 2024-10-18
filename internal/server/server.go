@@ -18,22 +18,6 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type eventDelegate struct {
-	*cacheServer
-}
-
-func (d *eventDelegate) NotifyJoin(node *memberlist.Node) {
-	log.Info().Str("node", node.Name).Msg("Node joined")
-	d.hashRing.Add(&hashring.Node{ID: node.Name, Addr: node.Name})
-}
-
-func (d *eventDelegate) NotifyLeave(node *memberlist.Node) {
-	log.Info().Str("node", node.Name).Msg("Node left")
-	d.hashRing.Remove(node.Name)
-}
-
-func (d *eventDelegate) NotifyUpdate(node *memberlist.Node) {}
-
 type cacheServer struct {
 	pb.UnimplementedCacheServiceServer
 	cache      *cache.Cache
@@ -52,21 +36,7 @@ func New(cfg *config.Config) *cacheServer {
 		config:   cfg,
 		limiter:  rate.NewLimiter(rate.Limit(cfg.RateLimit), cfg.RateLimitBurst),
 	}
-
-	mlConfig := memberlist.DefaultLANConfig()
-	mlConfig.Name = cfg.Addr
-	mlConfig.Events = &eventDelegate{cs}
-
-	ml, err := memberlist.Create(mlConfig)
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create memberlist")
-	}
-
-	cs.memberlist = ml
-	if _, err := cs.memberlist.Join(cfg.Peers); err != nil {
-		log.Warn().Err(err).Msg("failed to join membership cluster")
-	}
-
+	cs.memberlist = newMemberlist(cs, cfg)
 	cs.hashRing.Add(&hashring.Node{ID: cfg.Addr, Addr: cfg.Addr})
 
 	return cs
