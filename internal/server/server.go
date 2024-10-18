@@ -53,21 +53,22 @@ func (cs *cacheServer) Set(ctx context.Context, req *pb.SetRequest) (*empty.Empt
 		cs.cache.Set(req)
 		return &empty.Empty{}, nil
 	}
+
 	req.SourceNode = cs.config.Addr
-
-	targetNode, ok := cs.hashRing.Get(req.Key)
+	nodes, ok := cs.hashRing.GetNodes(req.Key)
 	if !ok {
-		return nil, status.Errorf(codes.NotFound, "a node for the requested key %s was not found", req.Key)
+		return nil, status.Errorf(codes.Internal, "not enough nodes available to achieve write quorum")
 	}
 
-	if targetNode.Addr == cs.config.Addr {
-		log.Info().Msg("handling set request on current node")
-		cs.cache.Set(req)
-		go cs.replicate(req)
-		return &empty.Empty{}, nil
+	for _, node := range nodes {
+		if node.Addr == cs.config.Addr {
+			log.Info().Str("addr", cs.config.Addr).Msg("handling request on current node")
+			cs.cache.Set(req)
+			continue
+		}
+		cs.forwardSet(req, node.Addr)
 	}
 
-	go cs.forwardSet(req, targetNode.Addr)
 	return &empty.Empty{}, nil
 }
 
@@ -92,16 +93,6 @@ func (cs *cacheServer) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResp
 
 	req.SourceNode = cs.config.Addr
 	return cs.forwardGet(req, targetNode.Addr)
-}
-
-func (cs *cacheServer) replicate(in *pb.SetRequest) {
-	for _, peer := range cs.config.Peers {
-		if peer == "" {
-			continue
-		}
-		log.Info().Str("addr", peer).Msg("sending replication request to peer")
-		go cs.forwardSet(in, peer)
-	}
 }
 
 func (cs *cacheServer) forwardSet(in *pb.SetRequest, target string) {
