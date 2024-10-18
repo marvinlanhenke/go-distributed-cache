@@ -32,6 +32,16 @@ func TestHashRingReplication(t *testing.T) {
 	require.Len(t, nodes, 2, "expected len of %d, instead got %d", 2, len(nodes))
 }
 
+func TestHashRingRemove(t *testing.T) {
+	hr := hashring.New()
+	hr.Add(&hashring.Node{ID: "node1", Addr: "localhost:8080"})
+	hr.Add(&hashring.Node{ID: "node2", Addr: "localhost:8081"})
+	hr.Add(&hashring.Node{ID: "node3", Addr: "localhost:8082"})
+
+	hr.Remove("node2")
+	require.Equal(t, 2, hr.Size(), "expected size of %d, instead got %d", 2, hr.Size())
+}
+
 func TestHashRingReplicationWithEmptyRing(t *testing.T) {
 	hr := hashring.New()
 

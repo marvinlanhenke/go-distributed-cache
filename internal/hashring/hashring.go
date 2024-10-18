@@ -50,6 +50,18 @@ func (hr *HashRing) Add(node *Node) {
 	hr.Replication = hr.Size()/2 + 1
 }
 
+func (hr *HashRing) Remove(nodeID string) {
+	hr.mu.Lock()
+	defer hr.mu.Unlock()
+
+	for i, member := range hr.members {
+		if member.node.ID == nodeID {
+			hr.members = append(hr.members[:i], hr.members[i+1:]...)
+			break
+		}
+	}
+}
+
 func (hr *HashRing) GetNodes(key string) ([]*Node, bool) {
 	if hr.IsEmpty() || hr.Replication > hr.Size() {
 		return nil, false
