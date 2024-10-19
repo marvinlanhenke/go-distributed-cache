@@ -19,16 +19,18 @@ type application struct {
 	config *config.Config
 }
 
+// Initializes a new application with the provided configuration.
 func NewApplication(config *config.Config) *application {
 	return &application{config: config}
 }
 
+// Starts the gRPC server on the specified port and begins listening for incoming connections.
 func (app *application) run() {
 	grpcServer := app.mount()
 
 	lis, err := net.Listen("tcp", port)
 	if err != nil {
-		log.Fatal().Err(err).Str("port", port).Msg("failed to listen")
+		log.Fatal().Err(err).Str("port", port).Msg("failed to start listening on the specified port")
 	}
 
 	log.Info().Str("port", port).Msg("server starting...")
@@ -37,6 +39,7 @@ func (app *application) run() {
 	}
 }
 
+// Configures and initializes the gRPC server with the necessary interceptors and options.
 func (app *application) mount() *grpc.Server {
 	loggingOpts := []logging.Option{
 		logging.WithLogOnEvents(logging.StartCall, logging.FinishCall),
