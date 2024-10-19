@@ -8,23 +8,29 @@ import (
 	"github.com/marvinlanhenke/go-distributed-cache/internal/pb"
 )
 
+// Represents an individual cache entry.
 type cacheItem struct {
-	value      string
-	version    int
-	expiryTime time.Time
+	value      string    // The actual cached value.
+	version    int       // Version of the cache item, used to manage updates.
+	expiryTime time.Time // Time when the cache item will expire.
 }
 
+// Represents an entry in the eviction list.
 type listEntry struct {
-	key  string
-	item *cacheItem
+	key  string     // The key associated with the cache item.
+	item *cacheItem // Pointer to the actual cache item.
 }
 
+// Cache represents a distributed cache with multiple shards for concurrency and efficiency.
+// Each shard manages a subset of cache entries to reduce contention.
 type Cache struct {
-	shards    []*shard
-	numShards int
-	ttl       time.Duration
+	shards    []*shard      // Slice of cache shards.
+	numShards int           // Number of shards for distributing cache keys.
+	ttl       time.Duration // Time-to-live for cache entries.
 }
 
+// Initializes and returns a new `Cache` instance.
+// It distributes the capacity evenly across all shards.
 func New(numShards, capacity int, ttl time.Duration) *Cache {
 	shards := make([]*shard, numShards)
 	capacityPerShard := capacity / numShards
@@ -42,6 +48,8 @@ func New(numShards, capacity int, ttl time.Duration) *Cache {
 	}
 }
 
+// Set adds or updates a cache entry with the specified key and value from the SetRequest.
+// If the cache exceeds its capacity, the least-recently-used (LRU) item is evicted.
 func (c *Cache) Set(req *pb.SetRequest) {
 	shard := c.getShard(req.Key)
 
@@ -68,6 +76,8 @@ func (c *Cache) Set(req *pb.SetRequest) {
 	shard.items[req.Key] = elem
 }
 
+// Retrieves a cache entry by key and returns a GetResponse if the key exists and has not expired.
+// If the item is found, it is moved to the front of the eviction list to mark it as recently used.
 func (c *Cache) Get(req *pb.GetRequest) (*pb.GetResponse, bool) {
 	shard := c.getShard(req.Key)
 
@@ -92,11 +102,13 @@ func (c *Cache) Get(req *pb.GetRequest) (*pb.GetResponse, bool) {
 	}, true
 }
 
+// Determines the appropriate shard for a given cache key by hashing the key.
 func (c *Cache) getShard(key string) *shard {
 	hash := fnv32(key)
 	return c.shards[hash%uint32(c.numShards)]
 }
 
+// Hashes a string key using the FNV-1a hash algorithm.
 func fnv32(key string) uint32 {
 	hsh := fnv.New32a()
 	hsh.Write([]byte(key))
