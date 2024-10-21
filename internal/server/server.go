@@ -18,16 +18,20 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// Implements the gRPC CacheServiceServer and manages cache operations in a distributed system.
+// It handles storing and retrieving cache data while ensuring consistency using a hash ring and memberlist.
 type cacheServer struct {
-	pb.UnimplementedCacheServiceServer
-	cache      *cache.Cache
-	hashRing   *hashring.HashRing
-	memberlist *memberlist.Memberlist
-	connPool   *grpcConnPool
-	config     *config.Config
-	limiter    *rate.Limiter
+	pb.UnimplementedCacheServiceServer                        // Embedding for unimplemented gRPC methods.
+	cache                              *cache.Cache           // The local cache for storing key-value pairs.
+	hashRing                           *hashring.HashRing     // Hash ring for consistent hashing and node selection.
+	memberlist                         *memberlist.Memberlist // Memberlist for managing cluster membership.
+	connPool                           *grpcConnPool          // Connection pool for managing gRPC client connections.
+	config                             *config.Config         // Configuration settings for the server.
+	limiter                            *rate.Limiter          // Rate limiter for controlling request throughput.
 }
 
+// Creates and initializes a new cacheServer with the given configuration.
+// It sets up the local cache, hash ring, connection pool, and memberlist, and adds the local node to the hash ring.
 func New(cfg *config.Config) *cacheServer {
 	cs := &cacheServer{
 		cache:    cache.New(cfg.NumShards, cfg.Capacity, cfg.TTL),
@@ -42,6 +46,8 @@ func New(cfg *config.Config) *cacheServer {
 	return cs
 }
 
+// Set stores a key-value pair in the distributed cache, ensuring write quorum among nodes.
+// It either stores the value locally or forwards the request to other nodes if necessary.
 func (cs *cacheServer) Set(ctx context.Context, req *pb.SetRequest) (*empty.Empty, error) {
 	isForwarded := req.SourceNode != ""
 	if isForwarded {
@@ -85,6 +91,8 @@ func (cs *cacheServer) Set(ctx context.Context, req *pb.SetRequest) (*empty.Empt
 	return &empty.Empty{}, nil
 }
 
+// Get retrieves a key-value pair from the distributed cache, ensuring read quorum among nodes.
+// It either retrieves the value locally or forwards the request to other nodes if necessary.
 func (cs *cacheServer) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
 	isForwarded := req.SourceNode != ""
 	if isForwarded {
@@ -152,6 +160,8 @@ func (cs *cacheServer) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResp
 	return response, nil
 }
 
+// Forwards a Set request to the target node over gRPC.
+// If the request is successful, it returns nil, otherwise, it returns an error.
 func (cs *cacheServer) forwardSet(in *pb.SetRequest, target string) error {
 	log.Info().Str("addr", target).Msg("forwarding set request to target node")
 
@@ -172,6 +182,8 @@ func (cs *cacheServer) forwardSet(in *pb.SetRequest, target string) error {
 	return nil
 }
 
+// Forwards a Get request to the target node over gRPC.
+// If the request is successful, it returns the response, otherwise, it returns an error.
 func (cs *cacheServer) forwardGet(in *pb.GetRequest, target string) (*pb.GetResponse, error) {
 	log.Info().Str("addr", target).Msg("forwarding get request on target node")
 
