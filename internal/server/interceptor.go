@@ -8,6 +8,8 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// InterceptorLogger creates a logging function compatible with the gRPC middleware's logging system, using zerolog as the underlying logger.
+// It returns a logging.Logger that logs messages at the appropriate level (Debug, Info, Warn, Error) based on the gRPC logging level.
 func InterceptorLogger(l zerolog.Logger) logging.Logger {
 	return logging.LoggerFunc(func(ctx context.Context, lvl logging.Level, msg string, fields ...any) {
 		l := l.With().Fields(fields).Logger()
